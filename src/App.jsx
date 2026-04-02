@@ -24,9 +24,16 @@ function formatNumber(n) {
 function App() {
   const apiKey = import.meta.env.VITE_OWM_API_KEY
   const [query, setQuery] = useState('')
+  const [units, setUnits] = useState(() => {
+    const saved = localStorage.getItem('weather.units')
+    return saved === 'imperial' ? 'imperial' : 'metric'
+  }) // metric | imperial
   const [status, setStatus] = useState('idle') // idle | loading | success | error
   const [error, setError] = useState('')
   const [weather, setWeather] = useState(null)
+
+  const tempUnit = units === 'imperial' ? '°F' : '°C'
+  const windUnit = units === 'imperial' ? 'mph' : 'm/s'
 
   const theme = useMemo(() => {
     const id = weather?.weather?.[0]?.id
@@ -40,7 +47,11 @@ function App() {
     }
   }, [theme])
 
-  async function fetchWeatherByCity(city) {
+  useEffect(() => {
+    localStorage.setItem('weather.units', units)
+  }, [units])
+
+  async function fetchWeatherByCity(city, nextUnits) {
     if (!apiKey) {
       throw new Error(
         'Missing API key. Add VITE_OWM_API_KEY to your .env file and restart the dev server.',
@@ -50,7 +61,7 @@ function App() {
     const url = new URL(OWM_ENDPOINT)
     url.searchParams.set('q', city)
     url.searchParams.set('appid', apiKey)
-    url.searchParams.set('units', 'metric') // Celsius
+    url.searchParams.set('units', nextUnits) // metric: °C, m/s | imperial: °F, mph
 
     const res = await fetch(url)
     const data = await res.json().catch(() => null)
@@ -73,7 +84,28 @@ function App() {
     setStatus('loading')
     setError('')
     try {
-      const data = await fetchWeatherByCity(city)
+      const data = await fetchWeatherByCity(city, units)
+      setWeather(data)
+      setStatus('success')
+    } catch (err) {
+      setWeather(null)
+      setStatus('error')
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+    }
+  }
+
+  async function onToggleUnits(nextUnits) {
+    if (nextUnits === units) return
+    setUnits(nextUnits)
+
+    // If we already have results, refetch same city in the new units.
+    const city = weather?.name || query.trim()
+    if (!city) return
+
+    setStatus('loading')
+    setError('')
+    try {
+      const data = await fetchWeatherByCity(city, nextUnits)
       setWeather(data)
       setStatus('success')
     } catch (err) {
@@ -106,7 +138,8 @@ function App() {
           </div>
         </div>
 
-        <form className="search" onSubmit={onSubmit}>
+        <div className="controls">
+          <form className="search" onSubmit={onSubmit}>
           <label className="srOnly" htmlFor="city">
             City
           </label>
@@ -122,7 +155,27 @@ function App() {
           <button className="searchButton" type="submit" disabled={status === 'loading'}>
             {status === 'loading' ? 'Searching…' : 'Search'}
           </button>
-        </form>
+          </form>
+
+          <div className="unitToggle" role="group" aria-label="Temperature units">
+            <button
+              type="button"
+              className={`unitButton ${units === 'metric' ? 'active' : ''}`}
+              onClick={() => onToggleUnits('metric')}
+              aria-pressed={units === 'metric'}
+            >
+              °C
+            </button>
+            <button
+              type="button"
+              className={`unitButton ${units === 'imperial' ? 'active' : ''}`}
+              onClick={() => onToggleUnits('imperial')}
+              aria-pressed={units === 'imperial'}
+            >
+              °F
+            </button>
+          </div>
+        </div>
       </header>
 
       <section className="card" aria-live="polite">
@@ -130,7 +183,7 @@ function App() {
           <div className="empty">
             <div className="emptyTitle">Type a city to begin</div>
             <div className="emptyText">
-              You’ll get temperature (°C), condition, humidity, wind speed, and an icon.
+              You’ll get temperature, condition, humidity, wind speed, and an icon.
             </div>
           </div>
         )}
@@ -172,10 +225,11 @@ function App() {
             <div className="tempRow">
               <div className="temp">
                 {formatNumber(weather?.main?.temp)}
-                <span className="tempUnit">°C</span>
+                <span className="tempUnit">{tempUnit}</span>
               </div>
               <div className="feels">
-                Feels like {formatNumber(weather?.main?.feels_like)}°C
+                Feels like {formatNumber(weather?.main?.feels_like)}
+                {tempUnit}
               </div>
             </div>
 
@@ -188,7 +242,7 @@ function App() {
                 <div className="statLabel">Wind</div>
                 <div className="statValue">
                   {typeof weather?.wind?.speed === 'number'
-                    ? `${weather.wind.speed.toFixed(1)} m/s`
+                    ? `${weather.wind.speed.toFixed(1)} ${windUnit}`
                     : '—'}
                 </div>
               </div>
@@ -207,7 +261,7 @@ function App() {
 
       <footer className="footer">
         <div className="footerText">
-          Data from OpenWeatherMap · Current Weather API · Units: metric (°C)
+          Data from OpenWeatherMap · Current Weather API · Units: {units}
         </div>
       </footer>
     </main>
