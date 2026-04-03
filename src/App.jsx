@@ -2,6 +2,21 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const OWM_ENDPOINT = 'https://api.openweathermap.org/data/2.5/weather'
+const FASTAPI_BASE_URL = 'http://127.0.0.1:8000'
+
+function normalizeFavouritesPayload(payload) {
+  // Supports backend returning either:
+  // - ["Paris", "London"]
+  // - [{ city: "Paris" }, ...]
+  if (!Array.isArray(payload)) return []
+  return payload
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object' && typeof item.city === 'string') return item.city
+      return null
+    })
+    .filter(Boolean)
+}
 
 function themeFromWeatherId(weatherId) {
   // https://openweathermap.org/weather-conditions
@@ -31,6 +46,9 @@ function App() {
   const [status, setStatus] = useState('idle') // idle | loading | success | error
   const [error, setError] = useState('')
   const [weather, setWeather] = useState(null)
+  const [favourites, setFavourites] = useState([])
+  const [favouritesBusy, setFavouritesBusy] = useState(false)
+  const [favouritesError, setFavouritesError] = useState('')
 
   const tempUnit = units === 'imperial' ? '°F' : '°C'
   const windUnit = units === 'imperial' ? 'mph' : 'm/s'
@@ -50,6 +68,19 @@ function App() {
   useEffect(() => {
     localStorage.setItem('weather.units', units)
   }, [units])
+
+  const activeCity = weather?.name || query.trim()
+
+  const favouriteSet = useMemo(() => {
+    const s = new Set()
+    for (const c of favourites) s.add(String(c).trim().toLowerCase())
+    return s
+  }, [favourites])
+
+  const isFavourite = useMemo(() => {
+    if (!activeCity) return false
+    return favouriteSet.has(String(activeCity).trim().toLowerCase())
+  }, [activeCity, favouriteSet])
 
   async function fetchWeatherByCity(city, nextUnits) {
     if (!apiKey) {
@@ -76,15 +107,83 @@ function App() {
     return data
   }
 
-  async function onSubmit(e) {
-    e.preventDefault()
-    const city = query.trim()
+  async function refreshFavourites() {
+    setFavouritesError('')
+    try {
+      console.log('[favourites] GET /favourites')
+      const res = await fetch(`${FASTAPI_BASE_URL}/favourites`)
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Failed to load favourites.')
+      }
+      setFavourites(normalizeFavouritesPayload(payload))
+    } catch (err) {
+      setFavouritesError(err instanceof Error ? err.message : 'Failed to load favourites.')
+    }
+  }
+
+  async function addFavouriteCity(city) {
+    setFavouritesBusy(true)
+    setFavouritesError('')
+    try {
+      console.log('[favourites] POST /favourites', { city })
+      const res = await fetch(`${FASTAPI_BASE_URL}/favourites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ city }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Failed to add favourite.')
+      }
+      await refreshFavourites()
+    } finally {
+      setFavouritesBusy(false)
+    }
+  }
+
+  async function removeFavouriteCity(city) {
+    setFavouritesBusy(true)
+    setFavouritesError('')
+    try {
+      console.log('[favourites] DELETE /favourites/{city}', { city })
+      const res = await fetch(
+        `${FASTAPI_BASE_URL}/favourites/${encodeURIComponent(city)}`,
+        { method: 'DELETE' },
+      )
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Failed to remove favourite.')
+      }
+      await refreshFavourites()
+    } finally {
+      setFavouritesBusy(false)
+    }
+  }
+
+  async function toggleFavouriteForActiveCity() {
+    const city = weather?.name || query.trim()
     if (!city) return
 
+    try {
+      if (isFavourite) {
+        await removeFavouriteCity(city)
+      } else {
+        await addFavouriteCity(city)
+      }
+    } catch (err) {
+      console.error('[favourites] toggle error', err)
+    }
+  }
+
+  async function loadCity(city) {
+    const trimmed = city.trim()
+    if (!trimmed) return
+    setQuery(trimmed)
     setStatus('loading')
     setError('')
     try {
-      const data = await fetchWeatherByCity(city, units)
+      const data = await fetchWeatherByCity(trimmed, units)
       setWeather(data)
       setStatus('success')
     } catch (err) {
@@ -92,6 +191,17 @@ function App() {
       setStatus('error')
       setError(err instanceof Error ? err.message : 'Something went wrong.')
     }
+  }
+
+  useEffect(() => {
+    refreshFavourites()
+  }, [])
+
+  async function onSubmit(e) {
+    e.preventDefault()
+    const city = query.trim()
+    if (!city) return
+    await loadCity(city)
   }
 
   async function onToggleUnits(nextUnits) {
@@ -178,86 +288,144 @@ function App() {
         </div>
       </header>
 
-      <section className="card" aria-live="polite">
-        {status === 'idle' && (
-          <div className="empty">
-            <div className="emptyTitle">Type a city to begin</div>
-            <div className="emptyText">
-              You’ll get temperature, condition, humidity, wind speed, and an icon.
+      <div className="bodyGrid">
+        <section className="card" aria-live="polite">
+          {status === 'idle' && (
+            <div className="empty">
+              <div className="emptyTitle">Type a city to begin</div>
+              <div className="emptyText">
+                You’ll get temperature, condition, humidity, wind speed, and an icon.
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {status === 'error' && (
-          <div className="error">
-            <div className="errorTitle">Couldn’t fetch weather</div>
-            <div className="errorText">{error || 'Please try again.'}</div>
-          </div>
-        )}
+          {status === 'error' && (
+            <div className="error">
+              <div className="errorTitle">Couldn’t fetch weather</div>
+              <div className="errorText">{error || 'Please try again.'}</div>
+            </div>
+          )}
 
-        {status === 'success' && weather && (
-          <div className="result">
-            <div className="resultTop">
-              <div className="resultLocation">
-                <div className="locationName">{locationText}</div>
-                <div className="locationMeta">
-                  {condition?.main ? condition.main : '—'}
-                  {condition?.description ? ` · ${condition.description}` : ''}
+          {status === 'success' && weather && (
+            <div className="result">
+              <div className="resultTop">
+                <div className="resultLocation">
+                  <div className="locationMetaRow">
+                    <div className="locationName">{locationText}</div>
+                    <button
+                      type="button"
+                      className={`favStarButton ${isFavourite ? 'active' : ''}`}
+                      disabled={favouritesBusy}
+                      aria-label={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
+                      aria-pressed={isFavourite}
+                      onClick={() => {
+                        void toggleFavouriteForActiveCity()
+                      }}
+                    >
+                      {isFavourite ? '★' : '☆'}
+                    </button>
+                  </div>
+                  <div className="locationMeta">
+                    {condition?.main ? condition.main : '—'}
+                    {condition?.description ? ` · ${condition.description}` : ''}
+                  </div>
+                </div>
+
+                <div className="resultIconWrap">
+                  {iconUrl ? (
+                    <img
+                      className="resultIcon"
+                      src={iconUrl}
+                      alt={condition?.description || 'Weather icon'}
+                      width="96"
+                      height="96"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="resultIconFallback" aria-hidden="true" />
+                  )}
                 </div>
               </div>
 
-              <div className="resultIconWrap">
-                {iconUrl ? (
-                  <img
-                    className="resultIcon"
-                    src={iconUrl}
-                    alt={condition?.description || 'Weather icon'}
-                    width="96"
-                    height="96"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="resultIconFallback" aria-hidden="true" />
-                )}
-              </div>
-            </div>
-
-            <div className="tempRow">
-              <div className="temp">
-                {formatNumber(weather?.main?.temp)}
-                <span className="tempUnit">{tempUnit}</span>
-              </div>
-              <div className="feels">
-                Feels like {formatNumber(weather?.main?.feels_like)}
-                {tempUnit}
-              </div>
-            </div>
-
-            <div className="stats">
-              <div className="stat">
-                <div className="statLabel">Humidity</div>
-                <div className="statValue">{formatNumber(weather?.main?.humidity)}%</div>
-              </div>
-              <div className="stat">
-                <div className="statLabel">Wind</div>
-                <div className="statValue">
-                  {typeof weather?.wind?.speed === 'number'
-                    ? `${weather.wind.speed.toFixed(1)} ${windUnit}`
-                    : '—'}
+              <div className="tempRow">
+                <div className="temp">
+                  {formatNumber(weather?.main?.temp)}
+                  <span className="tempUnit">{tempUnit}</span>
+                </div>
+                <div className="feels">
+                  Feels like {formatNumber(weather?.main?.feels_like)}
+                  {tempUnit}
                 </div>
               </div>
-              <div className="stat">
-                <div className="statLabel">Pressure</div>
-                <div className="statValue">
-                  {typeof weather?.main?.pressure === 'number'
-                    ? `${weather.main.pressure} hPa`
-                    : '—'}
+
+              <div className="stats">
+                <div className="stat">
+                  <div className="statLabel">Humidity</div>
+                  <div className="statValue">
+                    {formatNumber(weather?.main?.humidity)}%
+                  </div>
+                </div>
+                <div className="stat">
+                  <div className="statLabel">Wind</div>
+                  <div className="statValue">
+                    {typeof weather?.wind?.speed === 'number'
+                      ? `${weather.wind.speed.toFixed(1)} ${windUnit}`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="stat">
+                  <div className="statLabel">Pressure</div>
+                  <div className="statValue">
+                    {typeof weather?.main?.pressure === 'number'
+                      ? `${weather.main.pressure} hPa`
+                      : '—'}
+                  </div>
                 </div>
               </div>
             </div>
+          )}
+        </section>
+
+        <aside className="favouritesPanel" aria-live="polite">
+          <div className="favouritesHeader">
+            <div className="favouritesTitle">Favourites</div>
+            <div className="favouritesCount">{favourites.length}</div>
           </div>
-        )}
-      </section>
+
+          {favouritesError && (
+            <div className="favouritesError">{favouritesError}</div>
+          )}
+
+          {!favouritesError && favourites.length === 0 && (
+            <div className="favouritesEmpty">No saved cities yet.</div>
+          )}
+
+          {favourites.length > 0 && (
+            <div className="favouritesList">
+              {favourites.map((city) => {
+                const active =
+                  activeCity &&
+                  String(activeCity).trim().toLowerCase() ===
+                    String(city).trim().toLowerCase()
+
+                return (
+                  <button
+                    key={city}
+                    type="button"
+                    className={`favouritesCity ${active ? 'active' : ''}`}
+                    onClick={() => loadCity(city)}
+                  >
+                    <span className="favouritesStar" aria-hidden="true">
+                      ★
+                    </span>
+                    <span className="favouritesCityName">{city}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </aside>
+      </div>
 
       <footer className="footer">
         <div className="footerText">

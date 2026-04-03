@@ -7,6 +7,13 @@
   gap: 18px;
 }
 
+.bodyGrid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 18px;
+  align-items: start;
+}
+
 .header {
   display: grid;
   gap: 14px;
@@ -205,6 +212,51 @@
   align-items: center;
 }
 
+.locationMetaRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.favStarButton {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.favStarButton:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.26);
+}
+
+.favStarButton:active {
+  transform: translateY(0);
+}
+
+.favStarButton:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.favStarButton.active {
+  background: rgba(255, 220, 120, 0.18);
+  border-color: rgba(255, 220, 120, 0.35);
+  color: rgba(255, 220, 120, 0.95);
+}
+
 .resultIconWrap {
   width: 96px;
   height: 96px;
@@ -280,6 +332,96 @@
   text-align: center;
 }
 
+.favouritesPanel {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 18, 28, 0.28);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.3);
+  padding: 18px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: grid;
+  gap: 12px;
+}
+
+.favouritesHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.favouritesTitle {
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.favouritesCount {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.favouritesEmpty {
+  color: rgba(255, 255, 255, 0.7);
+  padding: 10px 0;
+}
+
+.favouritesError {
+  color: rgba(255, 190, 190, 0.95);
+  font-weight: 650;
+}
+
+.favouritesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.favouritesCity {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.favouritesCity:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.favouritesCity:active {
+  transform: translateY(0);
+}
+
+.favouritesCity.active {
+  background: rgba(255, 220, 120, 0.18);
+  border-color: rgba(255, 220, 120, 0.35);
+}
+
+.favouritesStar {
+  color: rgba(255, 220, 120, 0.95);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.favouritesCityName {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  font-size: 14px;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;
@@ -295,6 +437,9 @@
 @media (max-width: 560px) {
   .app {
     padding: 20px 14px 16px;
+  }
+  .bodyGrid {
+    grid-template-columns: 1fr;
   }
   .controls {
     grid-template-columns: 1fr;
