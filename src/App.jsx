@@ -5,14 +5,29 @@ const OWM_ENDPOINT = 'https://api.openweathermap.org/data/2.5/weather'
 const FASTAPI_BASE_URL = 'http://127.0.0.1:8000'
 
 function normalizeFavouritesPayload(payload) {
-  // Supports backend returning either:
+  // Supports common shapes:
   // - ["Paris", "London"]
   // - [{ city: "Paris" }, ...]
-  if (!Array.isArray(payload)) return []
-  return payload
+  // - { favourites: [...] }
+  // - { items: [...] }
+  let list = payload
+
+  if (!Array.isArray(list) && payload && typeof payload === 'object') {
+    if (Array.isArray(payload.favourites)) list = payload.favourites
+    else if (Array.isArray(payload.items)) list = payload.items
+    else return []
+  }
+
+  if (!Array.isArray(list)) return []
+
+  return list
     .map((item) => {
       if (typeof item === 'string') return item
-      if (item && typeof item === 'object' && typeof item.city === 'string') return item.city
+      if (item && typeof item === 'object') {
+        if (typeof item.city === 'string') return item.city
+        if (typeof item.name === 'string') return item.name
+        if (typeof item.city_name === 'string') return item.city_name
+      }
       return null
     })
     .filter(Boolean)
@@ -47,7 +62,6 @@ function App() {
   const [error, setError] = useState('')
   const [weather, setWeather] = useState(null)
   const [favourites, setFavourites] = useState([])
-  const [favouritesBusy, setFavouritesBusy] = useState(false)
   const [favouritesError, setFavouritesError] = useState('')
 
   const tempUnit = units === 'imperial' ? '°F' : '°C'
@@ -123,8 +137,17 @@ function App() {
   }
 
   async function addFavouriteCity(city) {
-    setFavouritesBusy(true)
     setFavouritesError('')
+    const normalizedCity = String(city).trim()
+    if (!normalizedCity) return
+
+    // Optimistic update so UI feels instant even if backend is slow
+    setFavourites((prev) => {
+      const lower = normalizedCity.toLowerCase()
+      if (prev.some((c) => String(c).trim().toLowerCase() === lower)) return prev
+      return [...prev, normalizedCity]
+    })
+
     try {
       console.log('[favourites] POST /favourites', { city })
       const res = await fetch(`${FASTAPI_BASE_URL}/favourites`, {
@@ -136,15 +159,25 @@ function App() {
       if (!res.ok) {
         throw new Error(payload?.detail || payload?.message || 'Failed to add favourite.')
       }
+      // Sync from backend in case it returns canonical names / deduped list
       await refreshFavourites()
     } finally {
-      setFavouritesBusy(false)
+      // no-op
     }
   }
 
   async function removeFavouriteCity(city) {
-    setFavouritesBusy(true)
     setFavouritesError('')
+    const normalizedCity = String(city).trim()
+    if (!normalizedCity) return
+
+    // Optimistic remove
+    setFavourites((prev) =>
+      prev.filter(
+        (c) => String(c).trim().toLowerCase() !== normalizedCity.toLowerCase(),
+      ),
+    )
+
     try {
       console.log('[favourites] DELETE /favourites/{city}', { city })
       const res = await fetch(
@@ -157,7 +190,7 @@ function App() {
       }
       await refreshFavourites()
     } finally {
-      setFavouritesBusy(false)
+      // no-op
     }
   }
 
@@ -315,7 +348,6 @@ function App() {
                     <button
                       type="button"
                       className={`favStarButton ${isFavourite ? 'active' : ''}`}
-                      disabled={favouritesBusy}
                       aria-label={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
                       aria-pressed={isFavourite}
                       onClick={() => {
